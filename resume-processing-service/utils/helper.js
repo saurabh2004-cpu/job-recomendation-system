@@ -5,19 +5,19 @@ const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/apiError');
 
 // Load Universal Sentence Encoder (USE) for NLP
-async function loadModel() {
-    const model = await use.load();
-    return model;
-}
+// async function loadModel() {
+//     const model = await use.load();
+//     return model;
+// }
 
-// Convert text to embeddings
-async function getEmbedding(text) {
-    const model = await loadModel();
-    const embeddings = await model.embed([text]);
-    return embeddings.array();
-}
+// // Convert text to embeddings
+// async function getEmbedding(text) {
+//     const model = await loadModel();
+//     const embeddings = await model.embed([text]);
+//     return embeddings.array();
+// }
 
-//consine similarity
+// //consine similarity
 function cosineSimilarity(vecA, vecB) {
     const a = tf.tensor1d(vecA);
     const b = tf.tensor1d(vecB);
@@ -135,29 +135,9 @@ const createEmailHtmlTemplate = (jobs) => {
     return htmlString;
 }
 
-//get current user
-const getCurrentUser = asyncHandler(async (req, res,) => {
-    try {
-        const user = await axios.get('http://localhost:4000/api/v1/get-current-user', {
-            headers: {
-                authorization: req.headers.authorization
-            },
-            Credentials: true
-        })
-
-        if (!user) {
-            return new ApiError(401, "User not found")
-        }
-
-        return user.data
-    } catch (error) {
-        throw new ApiError(401, "Unauthorized")
-    }
-})
 
 
-
-module.exports = { getEmbedding, cosineSimilarity, createEmailHtmlTemplate, getCurrentUser }
+module.exports = { cosineSimilarity,createEmailHtmlTemplate }
 
 
 

@@ -14,7 +14,7 @@ config();
 const model = new ChatGoogleGenerativeAI({
     model: "gemini-2.0-flash",
     temperature: 0,
-    apiKey: process.env.GOOGLE_API_KEY || 'AIzaSyDmhv2f-BaLUesh249wCIwYIkWCQbKgtFI'
+    apiKey: process.env.GOOGLE_API_KEY 
 });
 
 // Load the resume PDF and extract text

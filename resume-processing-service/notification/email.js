@@ -10,12 +10,10 @@ dotenv.config();
 
 const resend = new Resend(process.env.RESEND_API_KEY || 're_MnLGECL2_HJeMX1vRjye5wFXehLLCsKke');
 
-//get all resumes 
-let allResumes = null
 
 //subscribe for job Queue
 subscribeToQueue("job_Queue", async (message) => {
-    allResumes = await Resume.find({})
+    const allResumes = await Resume.find({})
     if (!allResumes || allResumes.length === 0) {
         console.log("no resumes found")
         return
@@ -23,8 +21,8 @@ subscribeToQueue("job_Queue", async (message) => {
 
     console.log("all resumes", allResumes)
 
-    console.log("Received message from job queue");
-    const jobData = JSON.parse(message).data;
+    console.log("Received message from job queue", message);
+    const jobData = JSON.parse(message);
     console.log("Parsed data:", jobData);
 
     for (const resume of allResumes) {
@@ -97,7 +95,13 @@ const sendMail = async (subject, html, email) => {
 
 //schedule sending email every moring  8 AM
 cron.schedule('0 8 * * *', async () => {
-    if (!allResumes || allResumes.length === 0) return;
+    const allResumes = await Resume.find({})
+    console.log("Cron job triggered at", new Date().toISOString());
+    if (!allResumes || allResumes.length === 0) {
+        console.log("No resumes to process in cron job");
+        return;
+    }
+    // if (!allResumes || allResumes.length === 0) return;
 
     for (const resume of allResumes) {
         const userId = resume.userId

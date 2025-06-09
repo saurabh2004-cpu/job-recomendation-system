@@ -24,7 +24,7 @@ const uploadAndAnalyzeResume = asyncHandler(async (req, res, next) => {
 
     const localFilePath = path.normalize(req.file.path);
 
-    console.log("localFilePath", localFilePath)
+    // console.log("localFilePath", localFilePath)
 
     // //  Get buffer from the saved file
     // const pdfData = fs.readFileSync(localFilePath);
@@ -99,8 +99,7 @@ const uploadAndAnalyzeResume = asyncHandler(async (req, res, next) => {
         return next(new ApiError(500, "Failed to extract structured information from the resume"));
     }
 
-    console.log("resume analyzed successfully", aiFormatedResumeText.formatedAnswer);
-
+    console.log("resume analyzed successfully");
 
     console.log("getting text embeddings... using lanchain model");
     // const textEmbeddings = await getEmbedding(aiFormatedResumeText?.text);
@@ -110,7 +109,7 @@ const uploadAndAnalyzeResume = asyncHandler(async (req, res, next) => {
         return next(new ApiError(500, "Failed to generate text embeddings"));
     }
 
-    console.log("embeddings",textEmbeddings,);
+    console.log("embeddings created");
     console.log("embedding length",textEmbeddings.length);
 
     try {
@@ -128,7 +127,7 @@ const uploadAndAnalyzeResume = asyncHandler(async (req, res, next) => {
             return next(new ApiError(400, "Failed to save resume"));
         }
 
-        console.log("newResume", newResume)
+        // console.log("newResume", newResume)
 
         await redisClient.setex(`resume:${req.user._id}`, 3600, JSON.stringify(newResume));
 
