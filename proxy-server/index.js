@@ -1,8 +1,17 @@
 const express = require('express');
 const proxy = require("express-http-proxy");
+const cors = require('cors')
+const dotenv = require('dotenv')
+
+dotenv.config()
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
+
+app.use(cors({
+    origin: "http://localhost:3000" || process.env.ALLOWED_ORIGIN,
+    credentials: true
+}))
 
 app.use('/resume-analyzer', proxy('http://localhost:4000'));
 
