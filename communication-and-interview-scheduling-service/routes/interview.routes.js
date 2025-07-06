@@ -10,25 +10,28 @@ const {
     deleteSingleInterview,
     getInterViewByStatus,
     searchInterviewsByKeyword,
-    createCommunicationRoom
+    createCommunicationRoom,
+    getApplicantsAllInterviews
 } = require('../controllers/interview.controller')
 
-router.route('/schedule-interview').post(verifyUser, scheduleInterview)
+router.route('/schedule-interview').post(verifyUser, scheduleInterview) //complted
 
-router.route('/get-all-interviews').get(verifyUser, getAllInterviews)
+router.route('/get-all-interviews').get(verifyUser, getAllInterviews)  //complted
 
-router.route('/get-single-interview').get(verifyUser, getSingleInterview)
+router.route('/get-applicants-all-interviews').get(verifyUser, getApplicantsAllInterviews)  //complted
 
-router.route('/update-interview-status').patch(verifyUser, updateInterviewStatus)
+router.route('/get-single-interview').get(verifyUser, getSingleInterview) //not
 
-router.route('/delete-interviews-by-status').delete(verifyUser, deleteInterviewByStatus)
+router.route('/update-interview-status').patch(verifyUser, updateInterviewStatus) //completed
 
-router.route('/delete-interview-by-id').delete(verifyUser, deleteSingleInterview)
+router.route('/delete-interviews-by-status').delete(verifyUser, deleteInterviewByStatus) //completed
 
-router.route('/get-interviews-by-status').get(verifyUser, getInterViewByStatus)
+router.route('/delete-interview-by-id').delete(verifyUser, deleteSingleInterview) //completed
 
-router.route('/search-interview-by-keyword').get(verifyUser, searchInterviewsByKeyword)
+router.route('/get-interviews-by-status').get(verifyUser, getInterViewByStatus) //completed
 
-router.route('/create-room').post(verifyUser, createCommunicationRoom)
+router.route('/search-interview-by-keyword').get(verifyUser, searchInterviewsByKeyword) //not
+
+router.route('/join-communication-room').post(verifyUser, createCommunicationRoom) //not
 
 module.exports = router

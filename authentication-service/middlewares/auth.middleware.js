@@ -2,6 +2,7 @@ const ApiError = require("../utils/apiError.js");
 const jwt = require("jsonwebtoken");
 const asyncHandler = require('../utils/asyncHandler');
 const User = require("../models/user.model.js");
+const redisClient = require("../redis/redisClient.js");
 
 const verifyJwt = asyncHandler(async (req, _, next) => {
 
@@ -15,6 +16,14 @@ const verifyJwt = asyncHandler(async (req, _, next) => {
         }
 
         const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
+
+        const cachedData = await redisClient.get(`current-user:${decodedToken._id}`)
+        if (cachedData) {
+            req.user = JSON.parse(cachedData)
+            next()
+            return
+        }
+
         const user = await User.findById(decodedToken?._id).select("-password -refreshToken")
 
         if (!user) {

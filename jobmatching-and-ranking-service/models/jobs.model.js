@@ -1,13 +1,21 @@
+const { string } = require("@tensorflow/tfjs");
+const { enum_ } = require("cohere-ai/core/schemas");
 const mongoose = require("mongoose");
 
- // Minimal schema
+// Minimal schema
 const userSchema = new mongoose.Schema({}, { strict: false });
 mongoose.model('User', userSchema, 'users'); // 'users' is the collection name in MongoDB
+
 
 const jobSchema = new mongoose.Schema({
     recruiterId: {
         type: mongoose.Schema.Types.ObjectId,
         required: true,
+    },
+    title: {
+        type: String,
+        required: true,
+        index: true,
     },
     jobField: {
         type: String,
@@ -35,6 +43,7 @@ const jobSchema = new mongoose.Schema({
     },
     jobType: {
         type: String,
+        enum: ['full-time', 'part-time', 'contract', 'remote','internship'],
         required: true,
         index: true,
     },
@@ -45,15 +54,15 @@ const jobSchema = new mongoose.Schema({
     },
     education: {
         type: String,
-        required: true,
         index: true,
+        enum: ['bachelors', 'masters', 'phd', 'b-tech', 'diploma', 'undergraduate', 'postgraduate', 'any']
     },
     jobEmbedding: {
         type: [Number], // Storing 512-dimensional vector as an array of numbers
         required: true,
     },
     requiredSkills: {
-        type: String,
+        type: [String],
         required: true,
         index: true,
     },
@@ -61,8 +70,10 @@ const jobSchema = new mongoose.Schema({
         type: Date,
     },
     jobStatus: {
-        type: Boolean,
-        default: true,
+        type: String,
+        enum: ['open', 'closed', 'paused'],
+        default: 'open'
+
     },
     jobApplicants: {
         type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

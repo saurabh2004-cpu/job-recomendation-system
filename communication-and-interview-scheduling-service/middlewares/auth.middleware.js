@@ -5,6 +5,7 @@ const axios = require("axios");
 const redisClient = require("../redis/redisClient");
 
 const verifyUser = asyncHandler(async (req, res, next) => {
+    // console.log("communication auth middleware triggered")
     const token = req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ", "")
 
     if (!token) {

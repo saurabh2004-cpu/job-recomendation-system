@@ -2,116 +2,112 @@ require('@tensorflow/tfjs');
 const use = require("@tensorflow-models/universal-sentence-encoder");
 const tf = require('@tensorflow/tfjs');
 const { CohereClient } = require('cohere-ai');
-const { subscribeToQueue, publishToQueue } = require('../../resume-processing-service/rabbitMQ/rabbit');
+const { subscribeToQueue, publishToQueue } = require("../rabbitMQ/rabbit");
 
-
-//initailize cohere AI model for text exatcting job structered details
 
 
 // Load Universal Sentence Encoder (USE) for NLP
-async function loadModel() {
-    const model = await use.load();
-    return model;
-}
+// async function loadModel() {
+//     const model = await use.load();
+//     return model;
+// }
 
-// Convert text to embeddings
-async function getEmbedding(text) {
-    const model = await loadModel();
-    const embeddings = await model.embed([text]);
-    return embeddings.array();
-}
-
-
+// // Convert text to embeddings
+// async function getEmbedding(text) {
+//     const model = await loadModel();
+//     const embeddings = await model.embed([text]);
+//     return embeddings.array();
+// }
 
 
-//consine similarity ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-function cosineSimilarity(vecA, vecB) {
+// //consine similarity ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// function cosineSimilarity(vecA, vecB) {
 
-    // const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
-    // const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
-    // const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
-    // return dotProduct / (magnitudeA * magnitudeB);
+//     // const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+//     // const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+//     // const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+//     // return dotProduct / (magnitudeA * magnitudeB);
 
-    const a = tf.tensor2d([vecA], [1, vecA.length]);
-    const b = tf.tensor2d([vecB], [1, vecB.length]);
+//     const a = tf.tensor2d([vecA], [1, vecA.length]);
+//     const b = tf.tensor2d([vecB], [1, vecB.length]);
 
-    const similarity = tf.matMul(a, b, false, true).dataSync()[0];
+//     const similarity = tf.matMul(a, b, false, true).dataSync()[0];
 
-    // Convert to percentage
-    const matchPercentage = ((similarity + 1) / 2) * 100;
-    return matchPercentage;
-}
+//     // Convert to percentage
+//     const matchPercentage = ((similarity + 1) / 2) * 100;
+//     return matchPercentage;
+// }
 
-//extract the strured information from the text using cohere
-const extractStructuredInformation = async (body) => {
+// //extract the strured information from the text using cohere
+// const extractStructuredInformation = async (body) => {
 
 
-    const cohere = new CohereClient({
-        token: process.env.COHERE_API_KEY || "mlN8OGFIuWb5jPfyKEFpPLESyXidYpH7HSVwrYzN", // Securely load the key from environment variables
-    });
+//     const cohere = new CohereClient({
+//         token: process.env.COHERE_API_KEY , 
+//     });
 
-    const { jobField, description, experience, education, requiredSkills } = body;
+//     const { jobField, description, experience, education, requiredSkills } = body;
 
-    //prompt for the cohere AI model to extract the job details
-    const jobPrompt = `
-        You are a professional parser for job-related data. Your job is to extract clean, structured information from the following unstructured text, which could be either a **job description** or a **resume excerpt**.
+//     //prompt for the cohere AI model to extract the job details
+//     const jobPrompt = `
+//         You are a professional parser for job-related data. Your job is to extract clean, structured information from the following unstructured text, which could be either a **job description** or a **resume excerpt**.
 
-        ### Step 1: Fix the formatting
-        - Insert missing spaces and punctuation.
-        - Ensure clear, readable formatting.
-        - Keep the original meaning exactly the same.
-        - Do **not** add or invent any information.
+//         ### Step 1: Fix the formatting
+//         - Insert missing spaces and punctuation.
+//         - Ensure clear, readable formatting.
+//         - Keep the original meaning exactly the same.
+//         - Do **not** add or invent any information.
 
-        ### Step 2: Extract only the following structured fields:
+//         ### Step 2: Extract only the following structured fields:
 
-        - job_field: main job domain or specialization (e.g., Software Engineering, Data Science, Backend Developer)
-        - description: a short summary of what the job or experience entails
-        - experience: years or level of experience mentioned (e.g., 3 years, Fresher, Senior-level)
-        - education: degrees or certifications (e.g., B.Tech in CS, Master of Data Science)
-        - skills: list of technical and soft skills (e.g., JavaScript, Python, Communication)
-        - keywords: relevant domain-specific terms or technologies (e.g., MERN Stack, REST APIs, Leadership)
+//         - job_field: main job domain or specialization (e.g., Software Engineering, Data Science, Backend Developer)
+//         - description: a short summary of what the job or experience entails
+//         - experience: years or level of experience mentioned (e.g., 3 years, Fresher, Senior-level)
+//         - education: degrees or certifications (e.g., B.Tech in CS, Master of Data Science)
+//         - skills: list of technical and soft skills (e.g., JavaScript, Python, Communication)
+//         - keywords: relevant domain-specific terms or technologies (e.g., MERN Stack, REST APIs, Leadership)
 
-        ### Strict Rules:
-        - Do not infer or fabricate anything — use only what is **explicitly stated** in the text
-        - Do not provide any explanation, just return the structured data
-        - Output must be clean and consistently formatted
+//         ### Strict Rules:
+//         - Do not infer or fabricate anything — use only what is **explicitly stated** in the text
+//         - Do not provide any explanation, just return the structured data
+//         - Output must be clean and consistently formatted
 
-        Here is the raw text to process:
-        """
-        ${description ? description : ""}
-        ${experience ? experience : ""}
-        ${education ? education : ""} 
-        ${jobField ? jobField : ""} 
-        ${requiredSkills ? requiredSkills : ""}
+//         Here is the raw text to process:
+//         """
+//         ${description ? description : ""}
+//         ${experience ? experience : ""}
+//         ${education ? education : ""} 
+//         ${jobField ? jobField : ""} 
+//         ${requiredSkills ? requiredSkills : ""}
 
-        """
+//         """
 
-        Return only the structured data in the specified format.
-        dont return data in json format, return it in a clean and readable format.
-        for example:
-        job_field: Software Engineering
-        description: Full Stack Developer with expertise in React, Node.js, and Express.
-        experience: 3 years
-        education: B.Tech in Computer Science
-        skills: JavaScript, Python, Communication
-        keywords: MERN Stack, REST APIs, Leadership
+//         Return only the structured data in the specified format.
+//         dont return data in json format, return it in a clean and readable format.
+//         for example:
+//         job_field: Software Engineering
+//         description: Full Stack Developer with expertise in React, Node.js, and Express.
+//         experience: 3 years
+//         education: B.Tech in Computer Science
+//         skills: JavaScript, Python, Communication
+//         keywords: MERN Stack, REST APIs, Leadership
         
-    `;
+//     `;
 
-    // Call Cohere's Generate API
-    const aiFormatedResumeText = await cohere.chat({
-        model: "command-xlarge-nightly",
-        max_tokens: 1000,
-        temperature: 0.3,
-        message: jobPrompt
-    });
+//     // Call Cohere's Generate API
+//     const aiFormatedResumeText = await cohere.chat({
+//         model: "command-xlarge-nightly",
+//         max_tokens: 1000,
+//         temperature: 0.3,
+//         message: jobPrompt
+//     });
 
-    if (!aiFormatedResumeText) {
-        throw new Error("Failed to extract structured information from the job description");
-    }
+//     if (!aiFormatedResumeText) {
+//         throw new Error("Failed to extract structured information from the job description");
+//     }
 
-    return aiFormatedResumeText.text;
-}
+//     return aiFormatedResumeText.text;
+// }
 
 //testing
 const data = {
@@ -654,5 +650,5 @@ const testQueue = function () {
     publishToQueue("job_Queue", JSON.stringify(data));
 }
 
-module.exports = { cosineSimilarity, extractStructuredInformation, getEmbedding , testQueue};
+module.exports = {  testQueue};
 

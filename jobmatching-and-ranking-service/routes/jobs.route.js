@@ -10,7 +10,9 @@ const {
     deleteManyJobs,
     toggleJobStatus,
     getAllAplicantsForJob,
-    getApplicantsProfile
+    getApplicantsProfile,
+    rejectApplicant,
+    getAllJobApplicantions
 } = require('../controllers/jobs.controller')
 
 //recruters routes
@@ -60,7 +62,15 @@ router.route('/get-applicants-profile').get(
     getApplicantsProfile
 )
 
+router.route('/reject-applicant').patch(
+    verifyUser,
+    rejectApplicant
+)
 
+router.route('/get-all-applications').get(
+    verifyUser,
+    getAllJobApplicantions
+)
 
 
 

@@ -1,47 +1,147 @@
 const { Server } = require('socket.io')
+const { publishToQueue, subscribeToQueue, unsubscribeFromQueue } = require("../rabbitMQ/rabbit");
+const e = require('cors');
 
-const joinRoom = async () => {
-    const io = new Server({
-        cors: true
-    })
-    io.listen(6001)
+const io = new Server(6002, {
+    cors: true
+})
 
 
-    io.on('connection', (soket) => {
-        const emailToSoketMapping = new Map()  //email = key and soket = value 
-        const soketToEmailMapping = new Map() //soket = key and email= value
+const emailToSocketMapping = new Map()  // emailId -> socketId
+const socketToEmailMapping = new Map()  // socketId -> emailId
+const subscribedEmails = new Set()
 
-        soket.on('join-room', (data) => {
-            const { emailId, username, roomId } = data
 
-            console.log("New Connection")
-            console.log(`New user joined - ${username} }`)
+io.on('connection', (socket) => {
+    console.log('New socket connected:', socket.id)
 
-            //set user email,and soket to map
-            emailToSoketMapping.set(emailId, soket.id)
-            soketToEmailMapping.set(soket.id, emailId)
+    // io.sockets.sockets.forEach((socket) => {
+    //     socket.disconnect(true);
+    // });
 
-            soket.join(roomId)
-            soket.emit('joined-room', roomId)   //send member room id that he is joined the room
+    // console.log(io.sockets.sockets)
 
-            soket.broadcast.to(roomId).emit('user-joined', { emailId })   //send meassage to all members of the room
+    // load offline messages
+    socket.on('offline-messages', emailId => {
+        console.log("offline messages", emailId)
 
-            soket.on('call-user', data => {
-                const { emailId, offer } = data   //send this offer to this emailId
-                const fromEmail = soketToEmailMapping.get(soket.id)
-                const soketId = emailToSoketMapping.get(emailId)
+        emailToSocketMapping.set(emailId, socket.id)
+        socketToEmailMapping.set(socket.id, emailId)
 
-                soket.to(soketId).emit('upcomming-call', { from: fromEmail, offer })
+        //subscribe for offline messages 
+        if (!subscribedEmails.has(emailId)) {
+            subscribeToQueue(`messages:${emailId}`, (data) => {
+                const message = JSON.parse(data)
+                console.log("message offline", message)
+                console.log("message", message.content, +"from : ", + message.senderName)
+                console.log("receiver", emailId, socket.id)
+
+                io.to(socket.id).emit('load-offline-messages', message)
             })
+            subscribedEmails.add(emailId)
 
-            soket.on('call-accepted', data => {
-                const { emailId, answer } = data   //send answer to this email
-                const soketId = emailToSoketMapping.get(emailId)
-
-                soket.to(soketId).emit('call-accepted', { answer })
-            })
-        })
+        }
     })
-}
 
-module.exports = joinRoom
+    // Message event
+    socket.on('message', (data) => {
+        const { receiverEmailId, senderEmailId, content,senderName } = data
+
+        console.log(`sending message to ${receiverEmailId} from ${senderEmailId} content= ${content}`)
+
+        emailToSocketMapping.set(senderEmailId, socket.id)
+        socketToEmailMapping.set(socket.id, senderEmailId)
+
+        // Find the receiver's socket ID
+        const receiverSocketId = emailToSocketMapping.get(receiverEmailId)
+
+        console.log("users", emailToSocketMapping)
+
+        // Send message to the receiver
+        if (receiverSocketId) {
+            console.log("sending message to ", receiverEmailId)
+            socket.to(receiverSocketId).emit('message', data)
+        } else {
+            console.log(`Receiver socket not found for email: ${receiverEmailId}`)
+            console.log("storing messages to the queue")
+            publishToQueue(`messages:${receiverEmailId}`, JSON.stringify(data))
+        }
+    })
+
+    //subscribe to queue to get the applicants answer on scheduled interview
+    subscribeToQueue('scheduled-interview-answer', data => {
+        const interview = JSON.parse(data)
+        const { interviewId, recruiterEmailId, answer } = interview
+
+        const receiverSocketId = emailToSocketMapping(recruiterEmailId)
+        io.to(receiverSocketId).emit('scheduled-interview-answer', { message: `appllicant wants to ${answer} the interview`, interviewId })
+
+    })
+
+    socket.on('join-room', (data) => {
+        const { emailId, username, roomId, joiningUrl, receiverEmailId } = data
+        console.log(`User joined - ${username} with email ${emailId}`)
+
+        emailToSocketMapping.set(emailId, socket.id)
+        socketToEmailMapping.set(socket.id, emailId)
+
+        io.to(roomId).emit('user-joined', { emailId, socketId: socket.id })
+        socket.join(roomId)
+        io.to(socket.id).emit('joined-room', roomId)
+
+        const receiverSocketId = emailToSocketMapping.get(receiverEmailId)
+        io.to(receiverSocketId).emit('join-to-room', { joiningUrl: joiningUrl })  //notify the receiver applicant
+    })
+
+    // call
+    socket.on('call-applicant', (data) => {
+        const { to, offer } = data
+        console.log("calling to applicant ...", to)
+        io.to(to).emit('incomming-recruiter-call', { from: socket.id, offer: offer })
+        console.log("called to applicant ...", to)
+    })
+
+    //accept call
+    socket.on('call-accepted', (data) => {
+        const { answer, to } = data
+        console.log("call-accepte answer:- ")
+        console.log("applicant call accepted")
+
+        io.to(to).emit('call-accepted', { answer, from: socket.id })
+        console.log("call accepted answer sent to ", to)
+    })
+
+    socket.on('peer-nego-needed', (data) => {
+        const { to, offer } = data
+        console.log("negotiation needed offer")
+        io.to(to).emit('peer-nego-needed', { from: socket.id, offer })
+    })
+
+    socket.on('peer-nego-done', (data) => {
+        const { to, answer } = data
+        console.log("peer:negotiation-done")
+        io.to(to).emit('peer-nego-final', { from: socket.id, answer })
+    })
+
+    socket.on('user-disconnect', ({ to, from }) => {
+        io.to(to).emit('user-disconnected', { from: from })
+    })
+
+    // Clean up on disconnect
+    socket.on('disconnect', () => {
+        const email = socketToEmailMapping.get(socket.id)
+        if (email) {
+            emailToSocketMapping.delete(email)
+            socketToEmailMapping.delete(socket.id)
+            console.log(`Socket disconnected and mappings cleaned for email: ${email}`)
+
+            //  unsubscribe and remove
+            if (!emailToSocketMapping.has(email)) {
+                subscribedEmails.delete(email)
+                unsubscribeFromQueue(email)
+            }
+        }
+    })
+})
+
+module.exports = io

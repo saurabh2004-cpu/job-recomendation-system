@@ -2,6 +2,7 @@ const amqplib = require('amqplib');
 const rabbitUrl = process.env.RABBIT_URL || 'amqps://txgyauhc:HVMipKIXKdFI72UHZnM3u7b7C7NcWGuJ@fuji.lmq.cloudamqp.com/txgyauhc';
 
 let channel;
+const consumerTags = new Map()
 
 const setupRabbitMQ = async () => {
   try {
@@ -14,14 +15,13 @@ const setupRabbitMQ = async () => {
   }
 };
 
-const subscribeToQueue = async (queue, callback) => {
+const subscribeToQueue = async (queue, callback, emailId = "") => {
   if (!channel) {
     await setupRabbitMQ();
   }
-
   console.log("subscribing to queue", queue);
 
-  await channel.assertQueue(queue, { durable: true });
+  const consumer = await channel.assertQueue(queue, { durable: true }); // Ensure the queue exists
   channel.consume(queue, (msg) => {
     if (msg !== null) {
       callback(msg.content.toString());
@@ -29,8 +29,22 @@ const subscribeToQueue = async (queue, callback) => {
     }
   });
 
-  // console.log("subscribed to queue", queue);
+  console.log("consumer tag",consumer)
+
+  // FIXED: store the consumer tag correctly in the map
+  consumerTags.set(emailId, consumer.queue);
+
+  console.log(`Subscribed to ${queue} with tag `,consumer.queue);
 };
+
+const unsubscribeFromQueue = async (emailId) => {
+  const consumerTag = consumerTags.get(emailId)
+  if (consumerTag) {
+    await channel.cancel(consumerTag) //stops consuming msg
+    consumerTag.delete(emailId) //delet fro map
+    console.log(`Unsubscribed ${emailId} from queue`);
+  }
+}
 
 const publishToQueue = async (queue, message) => {
   if (!channel) {
@@ -41,4 +55,4 @@ const publishToQueue = async (queue, message) => {
   channel.sendToQueue(queue, Buffer.from(message), { persistent: true });
 };
 
-module.exports = {subscribeToQueue, publishToQueue };
+module.exports = { subscribeToQueue, publishToQueue,unsubscribeFromQueue };

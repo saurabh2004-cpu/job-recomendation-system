@@ -5,13 +5,14 @@ const { cosineSimilarity, createEmailHtmlTemplate, getCurrentUser } = require('.
 const redisClient = require('../redis/redisClient');
 const cron = require('node-cron');
 const Resume = require('../models/resume.model');
+const { getEmailHtmlTemplate } = require('../gemini/gemini');
 
 dotenv.config();
 
 const resend = new Resend(process.env.RESEND_API_KEY || 're_MnLGECL2_HJeMX1vRjye5wFXehLLCsKke');
 
 
-//subscribe for job Queue
+//1.subscribe for job Queue top 10 new jobs based on resume
 subscribeToQueue("job_Queue", async (message) => {
     const allResumes = await Resume.find({})
     if (!allResumes || allResumes.length === 0) {
@@ -77,6 +78,24 @@ subscribeToQueue("job_Queue", async (message) => {
 
 });
 
+
+//2.subscribe for job-status-update Queue
+subscribeToQueue('job-status-update', async ( message ) => {
+    console.log("new update")
+    const updateData = JSON.parse(message)
+    const aiGeneratedHtmlMessage = await getEmailHtmlTemplate(updateData)
+
+    console.log("email html message generated")
+
+    await sendMail("Job Status Update", aiGeneratedHtmlMessage, updateData.applicantId.email)
+})
+
+//3.subscribe for scheduled interview answer by aaplicant -remaining
+
+
+
+
+
 //function to send email
 const sendMail = async (subject, html, email) => {
     console.log("sending email to ", email);
@@ -122,6 +141,7 @@ cron.schedule('0 8 * * *', async () => {
         //finally send the email to the user 
         try {
             await sendMail("Top new jobs where your resume matches", htmlTemplate, user.email)
+
         } catch (error) {
             console.log("error in sending email", error);
         } finally {

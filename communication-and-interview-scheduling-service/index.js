@@ -3,6 +3,7 @@ const port = process.env.PORT || 6000
 const connectDb = require("./DB/index");
 const dotenv = require('dotenv')
 dotenv.config()
+require("./utils/scheduledtasks");
 
 connectDb()
     .then(async () => {

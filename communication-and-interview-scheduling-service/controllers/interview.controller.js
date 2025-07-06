@@ -4,21 +4,24 @@ const asyncHandler = require("../utils/asyncHandler");
 const ApiResponse = require("../utils/apiResponse");
 const redisClient = require("../redis/redisClient");
 const { publishToQueue } = require("../rabbitMQ/rabbit");
-const joinRoom = require("../soket/soket.io");
+const io = require("../soket/soket.io");
+
 
 
 //schedule a interview = 
 //recruiter functions ⬇️
 const scheduleInterview = asyncHandler(async (req, res) => {
-    const { candidateId, jobId, scheduledDate, scheduledTime } = req.body;
+    const { scheduledDate, scheduledTime } = req.body;
     const recruiterId = req.user._id;
+    const applicantId = req.query.applicantId
+    const jobId = req.query.jobId
 
-    if (!candidateId || !jobId || !recruiterId || !scheduledDate || !scheduledTime) {
+    if (!applicantId || !jobId || !recruiterId || !scheduledDate || !scheduledTime) {
         throw new ApiError(400, "All fields are required");
     }
 
-    const interview = await interViewModel.create({
-        candidateId,
+    const createdInterview = await interViewModel.create({
+        applicantId,
         jobId,
         recruiterId,
         scheduledDate,
@@ -26,25 +29,56 @@ const scheduleInterview = asyncHandler(async (req, res) => {
         status: "pending"
     });
 
-    if (!interview) {
+    if (!createdInterview) {
         throw new ApiError(500, "Failed to schedule interview");
     }
+
+    const interview = await interViewModel.findById(createdInterview._id).populate("jobId recruiterId applicantId");
+
+    // console.log("inter",interview)
 
     //store interview in redis
     await redisClient.setex(`interview:${interview._id}`, 3600, JSON.stringify(interview));
 
     //publish to queue for email
-    publishToQueue("interview_Queue", JSON.stringify(interview));
+    publishToQueue("job-status-update", JSON.stringify(interview));
 
     res.status(201).json(new ApiResponse(201, interview, "interview scheduled successfully"));
 });
 
 const createCommunicationRoom = asyncHandler(async (req, res) => {
-    const roomId = req.query.roomId || req.params.roomId;
+    const roomId = req.query.roomId;
     try {
-        await joinRoom();
 
-        res.json(new ApiResponse(200, null, ` room with id:${roomId} created successfully ,Share roomId with candidate`));
+        //make a connnection
+        io.on("connection", (socket) => {
+            const userIdTosocketMapping = new Map()
+            const socketToUserIdMapping = new Map()
+
+            socket.on('chat', (data) => {
+                const { userId } = data
+
+                userIdTosocketMapping.set(userId, socket.id)
+                socketToUserIdMapping.set(socket.id, userId)
+
+                console.log("New Connection")
+                console.log(`New user joined - ${senderId} }`)
+
+                socket.join(roomId)
+                socket.emit('joined-room', roomId)   //send member room id that he is joined the room
+
+                socket.broadcast.to(roomId).emit('user-joined', { senderId })   //send meassage to all members of the room
+                console.log("joined room", roomId)
+
+                socket.on('message', data => {
+                    const { senderId, content, receiverId, roomId } = data
+                    const socketId = userIdTosocketMapping.get(receiverId)
+                    socket.to(socketId).emit('message', data)
+                })
+
+            })
+        })
+
     } catch (error) {
         throw new ApiError(500, "Internal server error: " + error.message);
     }
@@ -52,19 +86,79 @@ const createCommunicationRoom = asyncHandler(async (req, res) => {
 
 //recruiter and cadidates functions ⬇️
 const getAllInterviews = asyncHandler(async (req, res) => {
-
+    console.log("get allinterviews triggered")
+    const userId = req.user._id;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+
     try {
-        const interviews = await interViewModel.find().populate("candidateId jobId recruiterId").limit(limit).skip(skip);
+        const interviews = await interViewModel.find(
+            {
+                $or: [
+                    { recruiterId: userId },
+                ]
+            })
+            .populate("applicantId jobId recruiterId")
+            .limit(limit)
+            .skip(skip);
+
+        const total = await interViewModel.countDocuments({
+            $or: [
+                { recruiterId: userId },
+                // { applicantId: userId }
+            ]
+        });
+
+        // console.log("interviews", interviews);
 
         if (!interviews || interviews.length === 0) {
-            throw new ApiError(404, "No interviews found");
+            return res.json(new ApiResponse(400, null, "No interviews found"));
         }
 
-        res.json(new ApiResponse(200, interviews, "All interviews fetched successfully"));
+        await redisClient.setex(`users-interviews:${userId}`, 3600, JSON.stringify(interviews));
+
+        res.json(new ApiResponse(200, { interviews, total }, "All interviews fetched successfully"));
+    } catch (error) {
+        throw new ApiError(500, "Internal server error: " + error.message);
+    }
+})
+
+const getApplicantsAllInterviews = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+
+    try {
+        const interviews = await interViewModel.find(
+            {
+                $or: [
+                    { applicantId: userId }
+                ]
+            })
+            .populate("applicantId jobId recruiterId")
+            .limit(limit)
+            .skip(skip);
+
+        const total = await interViewModel.countDocuments({
+            $or: [
+                { recruiterId: userId },
+                { applicantId: userId }
+            ]
+        });
+
+        // console.log("interviews", interviews);
+
+        if (!interviews || interviews.length === 0) {
+            return res.json(new ApiResponse(400, null, "No interviews found"));
+        }
+
+        await redisClient.setex(`users-interviews:${userId}`, 3600, JSON.stringify(interviews));
+
+        res.json(new ApiResponse(200, { interviews, total }, "All interviews fetched successfully"));
     } catch (error) {
         throw new ApiError(500, "Internal server error: " + error.message);
     }
@@ -92,7 +186,9 @@ const getSingleInterview = asyncHandler(async (req, res) => {
 })
 
 const deleteInterviewByStatus = asyncHandler(async (req, res) => {
-    const status = req.query.status || req.params.status;
+    const status = req.query.status
+
+
     try {
         const interviews = await interViewModel.find({ status: status });
 
@@ -116,17 +212,17 @@ const deleteInterviewByStatus = asyncHandler(async (req, res) => {
         //delete from interviewsByStatus string
         await redisClient.del(`interviewsByStatus:${status}`);
 
-        res.json(new ApiResponse(200, null, `All jobs with status ${status} interviews deleted successfully`));
+        res.json(new ApiResponse(200, interviews, `All jobs with status ${status} interviews deleted successfully`));
     } catch (error) {
         throw new ApiError(500, "Internal server error: " + error.message);
     }
 })
 
 const deleteSingleInterview = asyncHandler(async (req, res) => {
-    const interviewId = req.params.id || req.query.id;
+    const interviewId = req.query.interviewId
 
     try {
-        const interview = await interViewModel.findByIdAndDelete(interviewId);
+        const interview = await interViewModel.findOneAndDelete({ _id: interviewId });
 
         if (!interview) throw new ApiError(404, "Interview not found");
 
@@ -159,7 +255,7 @@ const getInterViewByStatus = asyncHandler(async (req, res) => {
     }
 
     try {
-        const interview = await interViewModel.find({ status: status }).populate("candidateId jobId recruiterId");
+        const interview = await interViewModel.find({ status: status }).populate("applicantId jobId recruiterId");
 
         if (!interview) {
             res.json(new ApiResponse(404, null, "No interviews found with this status"));
@@ -177,8 +273,10 @@ const getInterViewByStatus = asyncHandler(async (req, res) => {
 
 // candidate functions⬇️
 const updateInterviewStatus = asyncHandler(async (req, res) => {
-    const interviewId = req.query.interviewId || req.params.interviewId;
-    const status = req.query.status || req.params.status;
+    const interviewId = req.query.interviewId
+    const status = req.query.status
+
+    console.log("status", status)
 
     if (!interviewId || !status) {
         throw new ApiError(400, "All fields are required");
@@ -195,6 +293,8 @@ const updateInterviewStatus = asyncHandler(async (req, res) => {
         await interview.save();
 
         await redisClient.setex(`interview:${interview._id}`, 3600, JSON.stringify(interview));
+        await redisClient.del(`interviewsByStatus:${interview.status}`);
+        await redisClient.del(`users-interviews:${interview.applicantId || interview.recruiterId}`);
 
         res.json(new ApiResponse(200, interview, "Interview status updated successfully"));
     } catch (error) {
@@ -293,6 +393,42 @@ const searchInterviewsByKeyword = asyncHandler(async (req, res) => {
 
 })
 
+//remaining - add route 
+const acceptOrRejectScheduledInterview = asyncHandler(async (req, res) => {
+    const { recruiterId, jobId, applicantId } = req.query
+    const { answer } = req.body
+
+    try {
+        const interview = await interViewModel.findOne({ jobId: jobId }).populate('recruiterId')
+
+        if (!interview) {
+            throw new ApiError(400, "Interview with the joibId not found")
+        }
+
+        interViewModel.applicantStatus = answer
+        await interViewModel.save()
+
+
+        //publish to queue
+        await publishToQueue('scheduled-interview-answer', JSON.stringify(
+            {
+                interviewId: interview._id,
+                recruiterEmailId: interview.recruiterId.email,
+                answer: answer
+            }
+        ))
+
+        res.json(
+            new ApiResponse(200, interview, `Interview ${answer} `)
+        )
+
+
+    } catch (error) {
+
+    }
+})
+
+
 
 
 
@@ -307,5 +443,7 @@ module.exports = {
     deleteSingleInterview,
     getInterViewByStatus,
     searchInterviewsByKeyword,
-    createCommunicationRoom
+    createCommunicationRoom,
+    getApplicantsAllInterviews,
+    acceptOrRejectScheduledInterview
 }

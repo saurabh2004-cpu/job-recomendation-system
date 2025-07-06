@@ -1,37 +1,4 @@
-const tf = require('@tensorflow/tfjs');
-const use = require("@tensorflow-models/universal-sentence-encoder");
-const redisClient = require('../redis/redisClient');
-const asyncHandler = require('../utils/asyncHandler');
-const ApiError = require('../utils/apiError');
 
-// Load Universal Sentence Encoder (USE) for NLP
-async function loadModel() {
-    const model = await use.load();
-    return model;
-}
-
-// Convert text to embeddings
-async function getEmbedding(text) {
-    const model = await loadModel();
-    const embeddings = await model.embed([text]);
-    return embeddings.array();
-}
-
-//consine similarity
-function cosineSimilarity(vecA, vecB) {
-    const a = tf.tensor1d(vecA);
-    const b = tf.tensor1d(vecB);
-
-    const dotProduct = tf.dot(a, b).dataSync()[0];
-    const normA = tf.norm(a).dataSync()[0];
-    const normB = tf.norm(b).dataSync()[0];
-
-    const similarity = dotProduct / (normA * normB);
-
-    // Convert to percentage (optional)
-    const matchPercentage = ((similarity + 1) / 2) * 100;
-    return matchPercentage;
-}
 
 //create a email HTML teplate
 const createEmailHtmlTemplate = (jobs) => {
@@ -136,10 +103,7 @@ const createEmailHtmlTemplate = (jobs) => {
 }
 
 
-
-
-
-module.exports = { getEmbedding, cosineSimilarity, createEmailHtmlTemplate }
+module.exports = { createEmailHtmlTemplate }
 
 
 

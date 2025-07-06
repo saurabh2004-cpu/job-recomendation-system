@@ -1,4 +1,4 @@
-const { Schema,mongoose } = require("mongoose");
+const { Schema, mongoose } = require("mongoose");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
@@ -25,13 +25,54 @@ const userSchema = new Schema({
         trim: true,
         index: true,
     },
+    phone: {
+        type: String,
+        trim: true,
+        index: true,
+    },
+    location: {
+        type: String,
+        trim: true,
+        index: true,
+    },
+    professionalTitle: {
+        type: String,
+        trim: true,
+        index: true,
+    },
+    bio: {
+        type: String,
+        trim: true,
+        index: true,
+    },
+    experience: {
+        type: String,
+        enum: ['Fresher','mid-level', 'Senior', 'Expert'],
+        trim: true,
+        index: true,
+    },
+    skills: {
+        type: [String],
+        trim: true,
+        index: true,
+    },
+    portfolio: {
+        type: String,
+        trim: true,
+        index: true,
+    },
     password: {
         type: String,
         required: [true, 'Password is required'],
     },
+    education: {
+        type: String,
+        trim: true,
+        index: true,
+        enum: ['Bachelors', 'Masters', 'Btech', 'Diploma', 'None']
+    },
     refreshToken: {
         type: String,
-        required: [true, 'Refresh token is required'],
     },
     googleId: {
         type: String,

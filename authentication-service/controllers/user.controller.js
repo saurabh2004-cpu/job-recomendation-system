@@ -14,7 +14,7 @@ const registerUser = asyncHandler(async (req, res) => {
     const { fullName, email, username, password } = req.body
 
     if ([fullName, email, username, password].some((field) => field?.trim() === "")) {
-        throw new ApiError(400, "all fields are required")
+        return new Api(400, "all fields are required")
     }
 
     const existedUser = await User.findOne({
@@ -22,14 +22,14 @@ const registerUser = asyncHandler(async (req, res) => {
     })
 
     if (existedUser) {
-        throw new ApiError(409, "User with email or username is already exist")
+        return res.json(new ApiResponse(400, null, "user already exists"))
     }
 
     const user = await User.create({
         fullName,
         email,
         password,
-        username: username.toLowerCase()
+        username: username.toLowerCase(),
     })
 
     const createdUser = await User.findById(user._id).select(
@@ -50,6 +50,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
 // login 
 const loginUser = asyncHandler(async (req, res) => {
+
     const { email, username, password } = req.body
 
     if (!username && !email) {
@@ -79,6 +80,8 @@ const loginUser = asyncHandler(async (req, res) => {
     const options = {
         httpOnly: true,
         secure: true,
+        maxAge: 1000 * 60 * 60 * 24,
+        
     }
 
     //store user in redis
@@ -101,9 +104,6 @@ const loginUser = asyncHandler(async (req, res) => {
 
 //get current user
 const getCurrentUser = asyncHandler(async (req, res) => {
-   
-
-    console.log("current user")
     await redisClient.setex(`current-user:${req.user._id}`, 86400, JSON.stringify(req.user))
     return res
         .status(200)
@@ -141,7 +141,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 })
 
 
-//refres Access token
+//refres Access token - remaining
 const refreshAccessToken = asyncHandler(async (req, res) => {
 
     try {
@@ -193,7 +193,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 })
 
 
-//change password
+//change password -remaining
 const changeCurrentPassword = asyncHandler(async (req, res) => {
 
     const { oldPassword, newPassword } = req.body //confpassword
@@ -221,21 +221,30 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 //update account details 
 const updateAccountDetails = asyncHandler(async (req, res) => {
 
-    const { fullName, username } = req.body
+    const { fullName, username,phone,location,professionalTitle,bio,experience,skills,portfolio } = req.body
 
-    //delete from redis to get updated userData
-    // redisClient.del(`current-user:${req.user._id}`)
+    console.log("update user details req.body", req.body)
+    console.log("skills",skills)
 
-    if (!fullName || !username) {
+    if (!fullName || !username || !phone || !location || !professionalTitle || !bio || !experience || !skills || !portfolio) {
         throw new ApiError(400, "all field are required")
     }
+    
+    const skillsArray = skills.filter((skill) => skill.trim() !== "");
 
     const user = await User.findByIdAndUpdate(
         req.user?._id,
         {
             $set: {
                 fullName: fullName,
-                username: username
+                username: username,
+                phone: phone,
+                location: location,
+                professionalTitle: professionalTitle,
+                bio: bio,
+                experience: experience,
+                skills: skillsArray,
+                portfolio: portfolio
             }
         },
         {
@@ -243,9 +252,14 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
         }
     ).select("-password")
 
+    if (!user) {
+        throw new ApiError(404, "user not found")
+    }
+
+    console.log("user", user)
+
     //store user in redis
     await redisClient.setex(`current-user:${user._id}`, 86400, JSON.stringify(user));
-
 
     return res
         .status(200)

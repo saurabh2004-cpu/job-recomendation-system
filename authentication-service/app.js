@@ -11,7 +11,8 @@ dotenv.config()
 //middlewares
 app.use(express.json())
 app.use(cors({
-    origin: process.env.ALLOWED_ORIGIN || "*"
+    origin: "http://localhost:3000" || process.env.ALLOWED_ORIGIN,
+    credentials: true
 }))
 app.use(cookieParser());
 

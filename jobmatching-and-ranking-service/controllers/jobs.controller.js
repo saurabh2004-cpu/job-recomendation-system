@@ -3,23 +3,20 @@
 const ApiError = require('../utils/apiError');
 const ApiResponse = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
-const { getEmbedding, extractStructuredInformation, testQueue } = require('../utils/helper');
 const redisClient = require('../redis/redisClient');
 const Job = require('../models/jobs.model');
 const { default: mongoose } = require('mongoose');
 const { publishToQueue } = require('../rabbitMQ/rabbit.js');
 const { getStructeredData, getEmbeddings } = require('../gemini/gemini.js');
 
-
+//completed
 const createJob = asyncHandler(async (req, res) => {
     console.log("creating job");
 
-    // testQueue();
-    // return 'completed test'
+    const { title, jobField, company, location, description, salary, jobType, experience, education, requiredSkills, jobExpiryDate } = req.body;
 
-    const { jobField, company, location, description, salary, jobType, experience, education, requiredSkills, jobExpiryDate } = req.body;
-
-    if ([jobField, company, location, description, salary, jobType, experience, education, requiredSkills].some((field) => field === "")) {
+    console.log("req.body", req.body);
+    if ([title, jobField, company, location, description, salary, jobType, experience, education, requiredSkills].some((field) => field === "")) {
         throw new ApiError(400, 'All fields are required');
     }
 
@@ -30,7 +27,7 @@ const createJob = asyncHandler(async (req, res) => {
         throw new ApiError(500, 'Failed to extract structured information from the job description');
     }
 
-    console.log("response from gemini",aiFormatedJobDetails.formatedAnswer);
+    console.log("response from gemini", aiFormatedJobDetails.formatedAnswer);
 
     console.log("getting text embeddings... using lanchain model");
     const textEmbeddings = await getEmbeddings(aiFormatedJobDetails.formatedAnswer)
@@ -39,11 +36,13 @@ const createJob = asyncHandler(async (req, res) => {
         throw new ApiError(500, 'Failed to generate text embeddings');
     }
 
-    console.log("embeddings created ", textEmbeddings);
+    console.log("embeddings created ", textEmbeddings[0]);
+    const skills = requiredSkills.split(/[\s,]+/).map((skill) => skill.trim());
 
     try {
         const newJob = await Job.create({
             recruiterId: req.user._id,
+            title,
             jobField,
             company,
             location,
@@ -53,7 +52,7 @@ const createJob = asyncHandler(async (req, res) => {
             experience,
             education,
             jobEmbedding: textEmbeddings,
-            requiredSkills,
+            requiredSkills: skills,
             jobExpiryDate: jobExpiryDate ?? new Date('9999-12-31T23:59:59Z'),
         })
 
@@ -63,11 +62,18 @@ const createJob = asyncHandler(async (req, res) => {
 
         console.log("new job created",);
 
-        //store the job in redis with an expiration time of 1 hour 
+        //1.store the job in redis with an expiration time of 1 hour 
         await redisClient.set(`job:${newJob._id}`, JSON.stringify(newJob))
         redisClient.expire(`job:${newJob._id}`, 3600)
 
-        //publish the job to the queue
+        //2.add updated job to cached jobsBykeyword hash
+        const cachedKeywords = await redisClient.smembers(`jobKeywords:${newJob._id}`);
+        for (const keyword of cachedKeywords) {
+            await redisClient.hset(`jobsByKeyword:${keyword}`, newJob._id, JSON.stringify(newJob));
+        }
+
+        //3.add updated job to recruiter-all-jobs hash --not working
+        await redisClient.hset(`recruiter-all-jobs:${newJob.recruiterId}`, newJob._id, JSON.stringify(newJob));
 
         publishToQueue("job_Queue", JSON.stringify(newJob))
 
@@ -83,6 +89,7 @@ const createJob = asyncHandler(async (req, res) => {
 })
 
 const getJobById = asyncHandler(async (req, res) => {
+    console.log("getJobById")
     const jobId = req.query.jobId || req.params.jobId
 
     if (!jobId || mongoose.Types.ObjectId.isValid(jobId) === false) {
@@ -112,9 +119,11 @@ const getJobById = asyncHandler(async (req, res) => {
     }
 })
 
+//completed
 const updateJobDetails = asyncHandler(async (req, res) => {
+    console.log("updateJobDetails")
     const { jobField, company, location, description, salary, jobType, experience, education, jobExpiryDate, jobStatus } = req.body;
-    const jobId = req.params.jobId || req.query.jobId
+    const jobId = req.query.jobId
 
 
     const fieldsToUpdate = [
@@ -151,23 +160,23 @@ const updateJobDetails = asyncHandler(async (req, res) => {
             throw new ApiError(400, 'Failed to update job details');
         }
 
-        const aiFormatedJobDetails = await extractStructuredInformation(updatedJob)
+        const aiFormatedJobDetails = await getStructeredData(updatedJob)
 
         if (!aiFormatedJobDetails) {
             throw new ApiError(500, 'Failed to extract structured information from the job description');
         }
 
-        console.log("ai formated job details", aiFormatedJobDetails);
+        console.log("ai formated job details");
 
-        const textEmbeddings = await getEmbedding(aiFormatedJobDetails)
+        const textEmbeddings = await getEmbeddings(aiFormatedJobDetails.formatedAnswer)
 
         if (!textEmbeddings) {
             throw new ApiError(500, 'Failed to generate text embeddings');
         }
 
-        console.log("new embeddings", textEmbeddings);
+        console.log("new embeddings", textEmbeddings[0]);
 
-        updatedJob.jobEmbedding = textEmbeddings[0]
+        updatedJob.jobEmbedding = textEmbeddings
         await updatedJob.save()
 
         //1.add jobs to cached job
@@ -189,9 +198,10 @@ const updateJobDetails = asyncHandler(async (req, res) => {
     }
 })
 
-//problem - not finding all jobs based on userid
+//completed
 const getRecrutersAllJobs = asyncHandler(async (req, res) => {
-    const recruiterId = req.query.recruiterId;
+    console.log("getRecrutersAllJobs")
+    const recruiterId = req.user._id || req.query.recruiterId;
 
     // Get pagination info from query 
     const page = parseInt(req.query.page) || 1;
@@ -217,7 +227,7 @@ const getRecrutersAllJobs = asyncHandler(async (req, res) => {
 
             if (cachedJobs && cachedJobs.length > 0) {
                 return res.json(new ApiResponse(200, {
-                    cachedJobs,
+                    jobs: cachedJobs,
                     page,
                     limit
                 }, "jobs fetched sucessfully"))
@@ -226,11 +236,13 @@ const getRecrutersAllJobs = asyncHandler(async (req, res) => {
 
         //  Get jobs for this recruiter with pagination
         const jobs = await Job.find({ recruiterId })
-            .select('-__v -createdAt -updatedAt -jobEmbedding')
+            .select('-__v -updatedAt -jobEmbedding')
             .skip(skip)
             .limit(limit)
 
+
         const totalJobs = await Job.countDocuments({ recruiterId });
+
 
         //  Cache the jobs data in Redis with an expiration time of 1 hour
         for (const job of jobs) {
@@ -256,8 +268,10 @@ const getRecrutersAllJobs = asyncHandler(async (req, res) => {
     }
 })
 
+//COMPLETED
 const deleteJob = asyncHandler(async (req, res) => {
-    const jobId = req.params.jobId || req.query.jobId
+    console.log("deleteJob")
+    const jobId = req.query.jobId
     const recruiterId = req.user._id
 
     //delete from jobs cache string
@@ -297,6 +311,7 @@ const deleteJob = asyncHandler(async (req, res) => {
 })
 
 const deleteManyJobs = asyncHandler(async (req, res) => {
+    console.log("deleteManyJobs")
     const recruiterId = req.user._id;
 
     if (!recruiterId) {
@@ -352,18 +367,35 @@ const deleteManyJobs = asyncHandler(async (req, res) => {
     res.json(new ApiResponse(200, { deletedJobs, notFoundJobs }, "Jobs deletion process completed"));
 });
 
+//completed
 const toggleJobStatus = asyncHandler(async (req, res) => {
-    const jobId = req.params.jobId || req.query.jobId
+    console.log("toggleJobStatus")
+    const jobId = req.query.jobId
+    const status = req.query.status
 
     try {
         const job = await Job.findById(jobId);
 
         if (!job) {
-            return res.status(404).json(new ApiResponse(404, null, "No job found with this ID"));
+            return res.json(new ApiResponse(404, null, "No job found with this ID"));
         }
 
-        job.jobStatus = !job.jobStatus; // Toggle the job status
+        job.jobStatus = status; // Toggle the job status
         await job.save();
+
+        //update in redis
+        await redisClient.setex(`job:${jobId}`, 3600, JSON.stringify(job));
+
+        //update in recruiter-all-jobs hash
+        await redisClient.hset(`recruiter-all-jobs:${job.recruiterId}`, jobId, JSON.stringify(job));
+
+        //update in jobsByKeyword hash
+        const cachedKeywords = await redisClient.smembers(`jobKeywords:${jobId}`);
+        for (const keyword of cachedKeywords) {
+            await redisClient.hset(`jobsByKeyword:${keyword}`, jobId, JSON.stringify(updatedJob));
+        }
+
+        await redisClient.expire(`recruiter-all-jobs:${job.recruiterId}`, 3600);
 
         res.json(new ApiResponse(200, job, "Job status updated successfully"));
     } catch (error) {
@@ -371,9 +403,10 @@ const toggleJobStatus = asyncHandler(async (req, res) => {
     }
 })
 
+//completed
 const getAllAplicantsForJob = asyncHandler(async (req, res) => {
-    const jobId = req.params.jobId || req.query.jobId
-
+    console.log("getAllAplicantsForJob")
+    const jobId = req.query.jobId
     const cachedData = await redisClient.get(`job-applicants:${jobId}`);
 
     if (cachedData && !cachedData == {}) {
@@ -388,13 +421,13 @@ const getAllAplicantsForJob = asyncHandler(async (req, res) => {
         const job = await Job.findById(jobId).populate("jobApplicants")
 
         if (!job) {
-            return res.status(404).json(new ApiResponse(404, null, "No job found with this ID"));
+            return res.json(new ApiResponse(400, null, "No job found with this ID"));
         }
 
         const applicants = job.jobApplicants
 
         if (!applicants || applicants.length === 0) {
-            return res.status(404).json(new ApiResponse(404, null, "No applicants found with this ID"));
+            return res.json(new ApiResponse(400, null, "No applicants found with this ID"));
         } else {
             await redisClient.setex(`job-applicants:${jobId}`, 3600, JSON.stringify(applicants))
 
@@ -408,6 +441,7 @@ const getAllAplicantsForJob = asyncHandler(async (req, res) => {
 
 //remaining task  = apply pagination for this ,when any candidat eapplies update the cache
 const getApplicantsProfile = asyncHandler(async (req, res) => {
+    console.log("getApplicantsProfile")
     const applicantsId = req.params.jobId || req.query.jobId
 
     if (!applicantsId || mongoose.Types.ObjectId.isValid(applicantsId) === false) {
@@ -444,6 +478,75 @@ const getApplicantsProfile = asyncHandler(async (req, res) => {
 
 })
 
+//completed
+const rejectApplicant = asyncHandler(async (req, res) => {
+    console.log("rejectApplicant")
+    const applicantId = req.query.applicantId
+    const jobId = req.query.jobId
+
+    console.log("rejecting applicant");
+
+    if (!applicantId || !jobId || mongoose.Types.ObjectId.isValid(applicantId) === false || mongoose.Types.ObjectId.isValid(jobId) === false) {
+        throw new ApiError(400, "Invalid applicant ID")
+    }
+
+    try {
+        const job = await Job.findById(jobId).select("-jobEmbedding")
+
+
+        if (!job) {
+            return res.json(new ApiResponse(400, null, "No job found with this ID"));
+        }
+
+        const applicants = job.jobApplicants
+
+        if (!applicants || applicants.length === 0) {
+            return res.json(new ApiResponse(400, null, "No applicants found for this job"));
+        } else {
+            job.jobApplicants = applicants.filter(applicant => applicant.toString() !== applicantId)
+            await job.save()
+
+            //update the reids
+            await redisClient.setex(`job:${jobId}`, 3600, JSON.stringify(job))
+
+            //update in jobsByKeyword hash
+            const cachedKeywords = await redisClient.smembers(`jobKeywords:${jobId}`);
+            for (const keyword of cachedKeywords) {
+                await redisClient.hset(`jobsByKeyword:${keyword}`, jobId, JSON.stringify(job));
+            }
+
+            //add to the job update queue - remaining
+            // publishToQueue("job-status-update", JSON.stringify(job));
+
+            await redisClient.expire(`recruiter-all-jobs:${job.recruiterId}`, 3600);
+
+            res.json(new ApiResponse(200, job, "Applicant rejected sucessfully"))
+        }
+    } catch (error) {
+        throw new ApiError(500, "internal server error: " + error.message)
+    }
+
+
+})
+
+const getAllJobApplicantions = asyncHandler(async (req, res) => {
+    console.log("getAllJobApplicantions")
+    const userId = req.user._id
+
+    try {
+        const jobs = await Job.find({ jobApplicants: { $in: [userId] } }).select("-jobEmbedding").populate("recruiterId")
+
+        if (!jobs || jobs.length === 0) {
+            return res.json(new ApiResponse(400, null, "No job found with this userId"));
+        }
+
+        await redisClient.setex(`my-applications:${userId}`, 3600, JSON.stringify(jobs))
+
+        res.json(new ApiResponse(200, jobs, "Job applicants fetched sucessfully"))
+    } catch (error) {
+        throw new ApiError(500, "internal server error: " + error.message)
+    }
+})
 
 
 module.exports = {
@@ -455,5 +558,7 @@ module.exports = {
     deleteManyJobs,
     toggleJobStatus,
     getAllAplicantsForJob,
-    getApplicantsProfile
+    getApplicantsProfile,
+    rejectApplicant,
+    getAllJobApplicantions
 }

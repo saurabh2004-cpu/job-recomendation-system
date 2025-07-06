@@ -8,7 +8,7 @@ const jobSchema = new mongoose.Schema({}, { strict: false });
 mongoose.model('Job', jobSchema, 'jobs');
 
 const interview = mongoose.Schema({
-    candidateId: {
+    applicantId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
@@ -41,10 +41,14 @@ const interview = mongoose.Schema({
 
     },
     status: {
-        type: String, enum: ['pending', 'accepted', 'rejected', 'scheduled', 'completed', 'cancelled'],
+        type: String, enum: ['pending', 'accepted', 'rejected', 'scheduled', 'completed', 'cancelled','expired'],
         required: [true, 'status is required'],
         index: true
     },
+    applicantStatus: {
+        type: String,
+        enum: ['accepted', 'rejected', 'postponed']
+    }
 }, { timestamps: true });
 
 const interviewModel = mongoose.model("Interview", interview);

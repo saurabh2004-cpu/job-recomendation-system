@@ -11,7 +11,7 @@ dotenv.config()
 //middlewares
 app.use(express.json())
 app.use(cors({
-    origin: process.env.ALLOWED_ORIGIN || "*"
+    origin: process.env.ALLOWEED_ORIGINS 
 }))
 app.use(cookieParser())
 

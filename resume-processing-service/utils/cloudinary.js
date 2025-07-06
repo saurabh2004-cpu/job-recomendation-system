@@ -16,12 +16,13 @@ const uploadOnCloudinary = async (localFilePath) => {
 
         //file upload on cloudinary
         console.log("fuploading file on cloudinary", localFilePath)
-        
+
         const response = await cloudinary.uploader.upload(
             localFilePath,
             {
                 resource_type: "raw",
-                folder: "resume"
+                folder: "products",
+                access_mode: "public"
             }).catch((error) => {
                 console.log("error in uploading file on cloudinary", error)
                 return null
@@ -36,12 +37,17 @@ const uploadOnCloudinary = async (localFilePath) => {
         console.error("Cloudinary upload failed:", error.message);
         console.error("Full error:", error);
 
-        throw new Error("Cloudinary upload failed:", error.message);
-
         fs.unlinkSync(localFilePath) //remove the locally saved temporry file as the upload operation got failed 
-        return null
+        throw new Error("Cloudinary upload failed:", error.message);
     }
 
 }
+
+cloudinary.api.resources(
+    { type: 'upload', resource_type: 'raw', prefix: 'resume/' },
+    function (error, result) {
+        console.log(result.resources);
+    }
+);
 
 module.exports = { uploadOnCloudinary }

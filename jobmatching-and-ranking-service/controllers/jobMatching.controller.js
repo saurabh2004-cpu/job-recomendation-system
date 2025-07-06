@@ -9,14 +9,15 @@ const Job = require('../models/jobs.model');
 const ApiError = require("../utils/apiError");
 const { default: mongoose } = require("mongoose");
 
-
+//completed
 const findJobBasedOnResume = asyncHandler(async (req, res) => {
     const userId = req.user._id
+    console.log("findJobBasedOnResume")
 
     // Check top job matches available in cache
     const cachedData = await redisClient.hgetall(`topJobMatches:${req.user}`);
 
-    console.log("cachedData", cachedData);
+    // console.log("cachedData", cachedData);
 
     if (cachedData != {} && cachedData.length > 0) {
         res.json(new ApiResponse(200, JSON.parse(cachedData), "top mached jobs fetched sucessfully"))
@@ -29,6 +30,8 @@ const findJobBasedOnResume = asyncHandler(async (req, res) => {
     if (!resumeEmbedding) {
         throw new ApiError(400, "Resume embedding is required");
     }
+
+
 
     try {
         const topMatchingJobs = await Job.aggregate([
@@ -80,9 +83,10 @@ const findJobBasedOnResume = asyncHandler(async (req, res) => {
 
 });
 
+//completed
 const findJobBykeyword = asyncHandler(async (req, res) => {
-
-    const keyword = req.query.keyword || req.body.keyword
+    console.log("findJobBykeyword")
+    const keyword = req.query.keyword
 
     if (!keyword) {
         throw new ApiError(400, "keyword is required")
@@ -105,7 +109,8 @@ const findJobBykeyword = asyncHandler(async (req, res) => {
             {
                 $text: {
                     $search: keyword
-                }
+                },
+
             }
         ).collation({ locale: 'en', strength: 2 });
 
@@ -146,11 +151,13 @@ const findJobBykeyword = asyncHandler(async (req, res) => {
 })
 
 
+//completed
 const getAllJobs = asyncHandler(async (req, res) => {
+    console.log("getAllJobs")
     try {
         const options = {
-            page: parseInt(req.query.page) || 1,
-            limit: parseInt(req.query.limit) || 10,
+            page: parseInt(req.query.page || req.params.page) || 1,
+            limit: parseInt(req.query.limit || req.params.limit) || 10,
             sort: { createdAt: -1 }, // Sort by createdAt in descending order
             collation: { locale: 'en', strength: 2 } // Case-insensitive sorting
         };
@@ -163,33 +170,62 @@ const getAllJobs = asyncHandler(async (req, res) => {
 
         if (!paginatedJobs || paginatedJobs.length === 0) {
             return res.status(404).json({ message: "No jobs found" });
+            console.log("no jobs found")
         }
 
 
-        res.json(new ApiResponse(200, paginatedJobs, "all jobs fetched sucesssfully"))
+
+        res.json(new ApiResponse(200, { jobs: paginatedJobs, page: options.page }, "all jobs fetched sucesssfully"))
     } catch (error) {
         throw new ApiError(500, error.message)
     }
 })
 
+//completed
 const applyForJob = asyncHandler(async (req, res) => {
-    const jobId = req.params.jobId || req.query.jobId
+    console.log("applyForJob")
+    const jobId = req.query.jobId || req.params.jobId
 
     if (!jobId || mongoose.Types.ObjectId.isValid(jobId) === false) {
         throw new ApiError(400, "Invalid job ID")
     }
 
     try {
-        const job = await Job.findById(jobId)
+        const job = await Job.findById(new mongoose.Types.ObjectId(jobId))
 
         if (!job) {
             throw new ApiError(400, "No Job found !")
         }
 
+        if (job.jobApplicants.includes(req.user._id)) {
+            throw new ApiError(400, "You have already applied for this job")
+        }
+
         job.jobApplicants.push(req.user._id)
         await job.save()
 
+        await redisClient.setex(`job:${jobId}`, 3600, JSON.stringify(job))
+
+        await redisClient.sadd(`jobApplicants:${jobId}`, req.user._id)
+        await redisClient.expire(`jobApplicants:${jobId}`, 3600)
+
         res.json(new ApiResponse(200, job, "Job applied sucessfully"))
+    } catch (error) {
+        throw new ApiError(500, "internal server error: " + error.message)
+    }
+})
+
+
+const findJobByFilter = asyncHandler(async (req, res) => {
+    console.log("findJobByFilter")
+    const { filter, keyword } = req.query
+
+    if (!filter) {
+        throw new ApiError(400, "Invalid filter")
+    }
+
+    try {
+        const jobs = await Job.find({ [filter]: { $regex: keyword, $options: 'i' } })
     } catch (error) {
         throw new ApiError(500, "internal server error: " + error.message)
     }
